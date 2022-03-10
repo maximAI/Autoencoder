@@ -1,4 +1,4 @@
-![Иллюстрация к проекту](https://github.com/jon/coolproject/raw/master/image/image.png)
+![Иллюстрация к проекту](https://github.com/maximAI/Autoencoder/blob/main/Screenshot_1.jpg)
 # Autoencoder
 Задача: Сделайть модель для очистки документов от шума и “грязи”.
 
