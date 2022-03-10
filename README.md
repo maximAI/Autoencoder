@@ -1,3 +1,4 @@
+![Иллюстрация к проекту](https://github.com/jon/coolproject/raw/master/image/image.png)
 # Autoencoder
 Задача: Сделайть модель для очистки документов от шума и “грязи”.
 
