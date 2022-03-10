@@ -1,11 +1,12 @@
 # Autoencoder
 Задача: Сделайть модель для очистки документов от шума и “грязи”.
 
-<a name="4"></a>
-## [Оглавление:](#4)
+<a name="5"></a>
+## [Оглавление:](#5)
 1. [Callbacks](#1)
-2. [Формирование параметров загрузки](#2)
+2. [Загрузка данных](#2)
 3. [Создание сети](#3)
+4. [Проверка работы сети](#4)
 
 Импортируем нужные библиотеки.
 ```
@@ -82,9 +83,10 @@ def load_images(images_dir, img_height, img_width):
                                                             target_size=(img_height, img_width))))
     return np.array(list_images)
 ```
-[:arrow_up:Оглавление](#4)
+[:arrow_up:Оглавление](#5)
 <a name="1"></a>
 ## Callbacks.
+Объявим колбэки, которые будем применять для обучения сети.
 ```
 # Остановит обучение, когда valloss не будет расти
 earlyStopCB = EarlyStopping(
@@ -110,100 +112,140 @@ lamCB = LambdaCallback(on_epoch_end=on_epoch_end)
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3,
                               patience=5, min_lr=0.00000001)
 ```
-[:arrow_up:Оглавление](#4)
+[:arrow_up:Оглавление](#5)
 <a name="2"></a>
-## Формируем параметры загрузки данных
+## Загрузка данных
 ```
-xLen = 30                           # Анализируем по 30 прошедшим точкам 
-valLen = 500                        # Используем 500 записей для проверки
+# Распаковка
+!unzip -q '/content/drive/MyDrive/text_cleaning.zip' # Загрузка всех изображений
 
-trainLen = data.shape[0] - valLen   # Размер тренировочной выборки
+# Загрузка изображений с шумом
+images_dir = '/content/text_cleaning/train_X'
+# Зададим размеры изображений
+img_height = 420
+img_widht = 540
 
-# Делим данные на тренировочную и тестовую выборки 
-xTrain, xTest = data[:trainLen], data[trainLen + xLen + 2:]
+cur_time = time.time()
+xTrain_imag = load_images(images_dir, img_height, img_widht)
+print('Время загрузки: ', round(time.time() - cur_time, 2), 'с', sep = '')
 
-# Масштабируем данные (отдельно для X и Y), чтобы их легче было скормить сетке
-xScaler = MinMaxScaler()
-xScaler.fit(xTrain)
-xTrain = xScaler.transform(xTrain)
-xTest = xScaler.transform(xTest)
-
-# Делаем reshape, т.к. у нас только один столбец по одному значению
-yTrain, yTest = np.reshape(data[:trainLen, 0], (-1, 1)), np.reshape(data[trainLen + xLen + 2:, 0], (-1, 1)) 
-yScaler = MinMaxScaler()
-yScaler.fit(yTrain)
-yTrain = yScaler.transform(yTrain)
-yTest = yScaler.transform(yTest)
-
-# Создаем генератор для обучения
-trainDataGen = TimeseriesGenerator(xTrain, yTrain,           # В качестве параметров наши выборки
-                               length = xLen, stride = 10,   # Для каждой точки (из промежутка длины xLen)
-                               batch_size = 20)              # Размер batch, который будем скармливать модели
-
-# Создаем аналогичный генератор для валидации при обучении
-testDataGen = TimeseriesGenerator(xTest, yTest,
-                               length = xLen, stride = 10,
-                               batch_size = 20)
-
-# Создадим генератор проверочной выборки, из которой потом вытащим xVal, yVal для проверки
-DataGen = TimeseriesGenerator(xTest, yTest,
-                               length = 30, stride = 10,
-                               batch_size = len(xTest))     # Размер batch будет равен длине нашей выборки
-xVal = []
-yVal = []
-for i in DataGen:
-    xVal.append(i[0])
-    yVal.append(i[1])
-
-xVal = np.array(xVal)
-yVal = np.array(yVal)
+# Нормируем
+xTrain_img = xTrain_imag / 255
 ```
-[:arrow_up:Оглавление](#4)
+```
+# Загрузка изображений с шумом
+images_dir = '/content/text_cleaning/train_Y'
+
+cur_time = time.time()
+yTrain_imag = load_images(images_dir, img_height, img_widht)
+print('Время загрузки: ', round(time.time() - cur_time, 2), 'с', sep = '')
+
+# Нормируем
+yTrain_img = yTrain_imag / 255
+```
+Отрисуем загруженные изображения
+```
+plotImages(xTrain_img, yTrain_img) # исходные и зашумленные варианты
+```
+[:arrow_up:Оглавление](#5)
 <a name="3"></a>
 ## Создаем сеть.
 ```
-dataInput = Input(shape = (trainDataGen[0][0].shape[1], trainDataGen[0][0].shape[2]))
+def AE(shape=(420, 540, 3)):
+    '''
+    Функция создания базового автокодировщика
+    '''
+    img_input = Input((shape)) # Задаем входные размеры
 
-Conv1DWay1 = Conv1D(20, 5, activation = 'relu')(dataInput)
-Conv1DWay1 = MaxPooling1D(padding = 'same')(Conv1DWay1)
+    x = Conv2D(128, (3, 3), padding='same', activation='elu')(img_input) # Входные данные передаем на слой двумерной свертки
+    x = BatchNormalization()(x) # Затем пропускаем через слой нормализации данных 
+    x = Conv2D(128, (3, 3), padding='same', activation='elu')(x) # Далее снова слой двумерной свертки
+    x = BatchNormalization()(x) # Слой нормализации данных
+    x = MaxPooling2D()(x) # Передаем на слой подвыборки, снижающий размерность поступивших на него данных
+    x = Dropout(0.2)(x)
 
-Conv1DWay2 = Conv1D(20, 5, activation = 'relu')(dataInput)
-Conv1DWay2 = MaxPooling1D(padding = 'same')(Conv1DWay2)
+    x = Conv2D(256, (3, 3), padding='same', activation='elu')(x) # Передаем на слой двумерной свертки
+    x = BatchNormalization()(x) # Пропускаем через слой нормализации данных 
+    x = Conv2D(256, (3, 3), padding='same', activation='elu')(x)  # Далее снова слой двумерной свертки
+    x = BatchNormalization()(x) # Слой нормализации данных
+    
+    z = MaxPooling2D()(x) # Скрытое пространство
+    
+    x = Conv2DTranspose(256, (3, 3), strides=2, padding='same', activation='elu')(z) 
+    x = BatchNormalization()(x) # Слой нормализации данных   
+    x = Conv2D(256, (3, 3), padding='same', activation='elu')(x) # Передаем на слой двумерной свертки
+    x = BatchNormalization()(x) # Слой нормализации данных
+    x = Conv2D(256, (3, 3), padding='same', activation='elu')(x) # Еще слой двумерной свертки
+    x = BatchNormalization()(x) # Слой нормализации данных
+    x = Dropout(0.2)(x)
 
-x1 = Flatten()(Conv1DWay1)
-x2 = Flatten()(Conv1DWay2)
+    x = Conv2DTranspose(128, (3, 3), strides=2, padding='same', activation='elu')(x) 
+    x = BatchNormalization()(x) # Слой нормализации данных
+    x = Conv2D(128, (3, 3), padding='same', activation='elu')(x) # Передаем на слой двумерной свертки
+    x = BatchNormalization()(x) # Слой нормализации данных
+    x = Conv2D(128, (3, 3), padding='same', activation='elu')(x) # Еще слой двумерной свертки
+    x = BatchNormalization()(x) # Слой нормализации данных
 
-finWay = concatenate([x1, x2])
-finWay = Dense(200, activation = 'linear')(finWay)
-finWay = Dropout(0.15)(finWay)
-finWay = Dense(1, activation = 'linear')(finWay)
+    # Финальный слой двумерной свертки, выдающий итоговое изображение
+    x = Conv2D(3, (3, 3), activation='sigmoid', padding='same')(x)
 
-modelX = Model(dataInput, finWay)
+    model = Model(img_input, x) # Указываем модель
+    model.compile(optimizer=Adam(),
+                  loss='mse') # Компилируем модель с оптимайзером Адам и среднеквадратичной ошибкой
+
+    return model # Функция вернет заданную модель
 ```
-Компилируем, запускаем обучение.
+Объявляем модель, запускаем обучение.
 ```
-history = modelX.fit(trainDataGen, 
-                    epochs = 15, 
-                    verbose = 1,
-                    validation_data = testDataGen)
+model = AE()
+
+model.fit(xTrain_img[:130], yTrain_img[:130], 
+          epochs=100, batch_size=5, 
+          validation_data = (xTrain_img[130:], yTrain_img[130:]),
+          callbacks=[earlyStopCB, reduce_lr, lamCB])
 ```
-Выведем график обучения.
+[:arrow_up:Оглавление](#5)
+<a name="4"></a>
+## Проверяем работу сети на тестовых данных.
 ```
-plt.plot(history.history['loss'], 
-         label = 'Точность на обучающем наборе')
-plt.plot(history.history['val_loss'], 
-         label = 'Точность на проверочном наборе')
-plt.ylabel('Средняя ошибка')
-plt.legend()
+images_dir = '/content/text_cleaning/test' # зададим имя папки в которую распоковали изображения
+```
+```
+xTest_imag = load_images(images_dir, img_height, img_widht) # загрузим избражения
+xTest_img = xTest_imag / 255 # отнормируем изображения от 0 до 1
+# выведем изображение
+plt.imshow(xTest_img[1])
+plt.axis('off')
 plt.show()
+print('\nРазмерность', xTest_img.shape)
 ```
-График автокорреляции.
 ```
-currModel = modelX
-predVal, yValUnscaled = getPred(currModel, xVal[0], yVal[0], yScaler)
-showPredict(0, 500, 0, predVal, yValUnscaled)
-showCorr([0], 11, predVal, yValUnscaled)
+def predictImg(image_my):
+    '''
+    Функция предикта только 1 изображения
+    '''
+    image_my = np.array(image_my)
+    image_my = image_my / 255
+
+    image_my_Denoise = model.predict(image_my.reshape(-1, 420, 540, 3))
+    image_my_Denoise = image_my_Denoise * 255
+    image_my_Denoise = image_my_Denoise.astype('uint8')
+
+    plt.figure(figsize=(16, 5))
+    plt.subplot(1, 2, 1)
+    plt.title('Исходная картинка')
+    plt.axis('off')
+    plt.imshow(image_my)
+    plt.subplot(1, 2, 2)
+    plt.title('Обработанная картинка')
+    plt.axis('off')
+    plt.imshow(image_my_Denoise.reshape(420, 540, 3))
+    plt.show()
 ```
-[:arrow_up:Оглавление](#4)
+```
+image_my_1 = image.load_img('/content/text_cleaning/test/test_001.png', \
+                          target_size = (420, 540))
+predictImg(image_my_1)
+```
 
 [Ноутбук](https://colab.research.google.com/drive/1F1XRgISbk0EaB-eZc-5kAXFfqTArxeAd?usp=sharing)
