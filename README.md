@@ -1,168 +1,113 @@
-# Фич инжиниринг
-Задача состоит в том, чтобы посмотреть, получится или нет, добавив дополнительные фичи/признаки, избавиться от автокрреляции.
+# Autoencoder
+Задача: Сделайть модель для очистки документов от шума и “грязи”.
 
 <a name="4"></a>
 ## [Оглавление:](#4)
-1. [Загрузка данных](#1)
+1. [Callbacks](#1)
 2. [Формирование параметров загрузки](#2)
 3. [Создание сети](#3)
 
 Импортируем нужные библиотеки.
 ```
-import pandas as pd                                             # Загружаем библиотеку Pandas
 import numpy as np                                              # Подключим numpy - библиотеку для работы с массивами данных
+import pandas as pd                                             # Загружаем библиотеку Pandas
 import matplotlib.pyplot as plt                                 # Подключим библиотеку для визуализации данных
-%matplotlib inline
-from tensorflow.keras.optimizers import Adam, Adamax            # Подключим оптимизаторы
-from tensorflow.keras.models import Sequential, Model           # Загружаем абстрактный класс базовой модели сети от кераса
-from tensorflow.keras.layers import concatenate, Input, Dense, Dropout, MaxPooling1D    # Подключим необходимые слои
-from tensorflow.keras.layers import BatchNormalization, Flatten, Conv1D, LSTM
-from sklearn.preprocessing import StandardScaler, MinMaxScaler  # Номализация данных
-from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator # Генератор данных
-import gdown                                                    # Загрузка датасетов из облака google
+import os                                                       # Импортируем модуль os для загрузки данных
+import time                                                     # Импортируем модуль time
+from google.colab import drive                                  # Подключим гугл диск
+from tensorflow.keras.models import Model                       # Загружаем абстрактный класс базовой модели сети от кераса
+# Подключим необходимые слои
+from tensorflow.keras.layers import Dense, Flatten, Reshape, Input, Conv2DTranspose, \
+                                    concatenate, Activation, MaxPooling2D, Conv2D, \
+                                    BatchNormalization, Dropout, MaxPooling1D, UpSampling2D
+from tensorflow.keras import backend as K                       # Подключим бэкэнд Керас
+from tensorflow.keras.optimizers import Adam                    # Подключим оптимизатор
+from tensorflow.keras import utils                              # Подключим utils
+from tensorflow.keras.utils import plot_model                   # Подключим plot_model для отрисовки модели
+from tensorflow.keras.preprocessing import image                # Подключим image для работы с изображениями
+from PIL import Image                                           # Подключим Image для работы с изображениями
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, LambdaCallback # 
+import tensorflow as tf                                         # Импортируем tensorflow
+import random                                                   # Импортируем библиотеку random
 ```
-Определим фукции для работы.
+Объявим необходимые функции.
 ```
-def getPred(currModel, xVal, yVal, yScaler):
+def plotImages(xTrain, pred, shape=(420, 540, 3)):
     '''
-    Функция рассчитываем результаты прогнозирования сети
-    Args:
-        В аргументы принимает сеть (currModel) и проверочную выборку
+    Функция для вывода изображений
+    '''
+    n = 5  # количество картинок, которые хотим показать
+    plt.figure(figsize=(18, 6)) # указываем размеры фигуры
+    for i in range(n): # для каждой картинки из n(5)
+        index = np.random.randint(0, pred.shape[0]) # startIndex - начиная с какого индекса хотим заплотить картинки
+        # Показываем картинки из тестового набора
+        ax = plt.subplot(2, n, i + 1) # выведем область рисования Axes
+        plt.imshow(xTrain[index].reshape(shape)) # отрисуем правильные картинки
+        ax.get_xaxis().set_visible(False) # скрываем вывод координатной оси x
+        ax.get_yaxis().set_visible(False) # скрываем вывод координатной оси y
+
+        # Показываем восстановленные картинки
+        ax = plt.subplot(2, n, i + 1 + n) # выведем область рисования Axes 
+        plt.imshow(pred[index].reshape(shape)) # отрисуем обработанные сеткой картинки 
+        ax.get_xaxis().set_visible(False) # скрываем вывод координатной оси x
+        ax.get_yaxis().set_visible(False) # скрываем вывод координатной оси y
+    plt.show()
+```
+def getMSE(x1, x2):
+    '''
+    Функция среднеквадратичной ошибки
+    
     Return:
-        Выдаёт результаты предсказания predVal
-        И правильные ответы в исходной размерности yValUnscaled (какими они были до нормирования)
+        возвращаем сумму квадратов разницы, делённую на длину разницы
     '''
-    # Предсказываем ответ сети по проверочной выборке
-    # И возвращаем исходны масштаб данных, до нормализации
-    predVal = yScaler.inverse_transform(currModel.predict(xVal))
-    yValUnscaled = yScaler.inverse_transform(yVal)
-    
-    return predVal, yValUnscaled
+    x1 = x1.flatten() # сплющиваем в одномерный вектор
+    x2 = x2.flatten() # сплющиваем в одномерный вектор
+    delta = x1 - x2 # находим разницу
+    return sum(delta ** 2) / len(delta)
 ```
 ```
-def showPredict(start, step, channel, predVal, yValUnscaled):
+def load_images(images_dir, img_height, img_width): 
     '''
-    Функция визуализирует графики, что предсказала сеть и какие были правильные ответы
-    Args:
-        start - точка с которой начинаем отрисовку графика
-        step - длина графика, которую отрисовываем
-        channel - какой канал отрисовываем
-    '''
-    plt.plot(predVal[start:start + step, 0],
-            label = 'Прогноз')
-    plt.plot(yValUnscaled[start:start + step, channel], 
-            label = 'Базовый ряд')
-    plt.xlabel('Время')
-    plt.ylabel('Значение Close')
-    plt.legend()
-    plt.show()
-```
-```
-def correlate(a, b):
-    '''
-    Функция расёта корреляции дух одномерных векторов
-    '''
-    # Рассчитываем основные показатели
-    ma = a.mean() # Среднее значение первого вектора
-    mb = b.mean() # Среднее значение второго вектора
-    mab = (a * b).mean() # Среднее значение произведения векторов
-    sa = a.std() # Среднеквадратичное отклонение первого вектора
-    sb = b.std() # Среднеквадратичное отклонение второго вектора
-    
-    # Рассчитываем корреляцию
-    val = 1
-    if ((sa > 0) & (sb > 0)):
-        val = (mab - ma * mb)/(sa * sb)
-    return val
-```
-```
-def showCorr(channels, corrSteps, predVal, yValUnscaled):
-    '''
-    Функция рисует корреляцию прогнозированного сигнала с правильным,
-    cмещая на различное количество шагов назад, для проверки появления эффекта автокорреляции
-    Args:
-        channels - по каким каналам отображать корреляцию
-        corrSteps - на какое количество шагов смещать сигнал назад для рассчёта корреляции
-    '''
-    # Проходим по всем каналам
-    for ch in channels:
-        corr = [] # Создаём пустой лист, в нём будут корреляции при смезении на i рагов обратно
-        yLen = yValUnscaled.shape[0] # Запоминаем размер проверочной выборки
+    Функция загрузки изображений, на вход принемает имя папки с изображениями, 
+    высоту и ширину к которой будут преобразованы загружаемые изображения
 
-    # Постепенно увеличикаем шаг, насколько смещаем сигнал для проверки автокорреляции
-    for i in range(corrSteps):
-        # Получаем сигнал, смещённый на i шагов назад
-        # predVal[i:, ch]
-        # Сравниваем его с верными ответами, без смещения назад
-        # yValUnscaled[:yLen-i,ch]
-        # Рассчитываем их корреляцию и добавляем в лист
-        corr.append(correlate(yValUnscaled[:yLen - i, ch], predVal[i:, 0]))
-
-    own_corr = [] # Создаём пустой лист, в нём будут корреляции при смезении на i рагов обратно
-
-    # Постепенно увеличикаем шаг, насколько смещаем сигнал для проверки автокорреляции
-    for i in range(corrSteps):
-        # Получаем сигнал, смещённый на i шагов назад
-        # predVal[i:, ch]
-        # Сравниваем его с верными ответами, без смещения назад
-        # yValUnscaled[:yLen-i,ch]
-        # Рассчитываем их корреляцию и добавляем в лист
-        own_corr.append(correlate(yValUnscaled[:yLen - i, ch], yValUnscaled[i:, ch]))
-
-    # Отображаем график коррелций для данного шага
-    plt.plot(corr, label = 'Предсказание на ' + str(ch + 1) + ' шаг')
-    plt.plot(own_corr, label = 'Эталон')
-    plt.xlabel('Время')
-    plt.ylabel('Значение')
-    plt.legend()
-    plt.show()
+    Return:
+        возвращаем numpy массив загруженных избражений
+    '''
+    list_images = [] # создаем пустой список в который будем загружать изображения
+    for img in sorted(os.listdir(images_dir)): # получим список изображений и для каждого изображения
+    # добавим в список изображение в виде массива, с заданными размерами
+        list_images.append(image.img_to_array(image.load_img(os.path.join(images_dir, img), \
+                                                            target_size=(img_height, img_width))))
+    return np.array(list_images)
 ```
 [:arrow_up:Оглавление](#4)
 <a name="1"></a>
-## Загрузим данные для анализа.
+## Callbacks.
 ```
-url = 'https://drive.google.com/uc?id=1_dfvJSMa9cQMgnE7jMthQ7CCzR7_Oj9B'
-gdown.download(url, None, quiet=False)
-```
-```
-data = pd.read_excel('/content/USD_011994_122020.xlsx')
-data.head(3)
-```
-Получим дополнительные столбцы.
-```
-data['year'] = pd.DatetimeIndex(data['data']).year
-data['month'] = pd.DatetimeIndex(data['data']).month
-data['day'] = pd.DatetimeIndex(data['data']).day
-```
-Удалим не нужные столбцы.
-```
-data = data.drop(columns = ['nominal', 'data', 'cdx'])
-data.head(3)
-```
-Для анализа возьмем не всю базу, только после 1998 года.
-```
-data = data[data['year'] > 1998]
-```
-Дополнительные данные:
-- Скользящие средние SMA
-- Bollinger bands
-```
-for sma_period in range(1, 36):
-    indicator_name = 'SMA_%d' % (sma_period)
-    data[indicator_name] = data['curs'].rolling(sma_period).mean()
+# Остановит обучение, когда valloss не будет расти
+earlyStopCB = EarlyStopping(
+                    monitor='loss',
+                    min_delta=0,
+                    patience=8,
+                    verbose=0,
+                    mode='min',
+                    baseline=None,
+                    restore_best_weights=False,
+                )
 ```
 ```
-for j in range(10, 20):
-    for i in [1, 2, 3, 4]:
-        indicator_name1 = 'BB_Up_%d_%d' % (j, i)
-        indicator_name2 = 'BB_Down_%d_%d' % (j, i)
-        data[indicator_name1] = data['curs'].rolling(j).mean() + i * data['curs'].rolling(j).std()
-        data[indicator_name2] = data['curs'].rolling(j).mean() - i * data['curs'].rolling(j).std()
+# Вывод шага обучения
+def on_epoch_end(epoch, logs):
+  lr = tf.keras.backend.get_value(model.optimizer.learning_rate)
+  print(' Коэффициент обучения', lr)
+
+lamCB = LambdaCallback(on_epoch_end=on_epoch_end)
 ```
-Удаляем строки с NaN, преобразуем в массив numpy.
 ```
-data = data.dropna()
-data = np.array(data)
+# Меняет шаг обучения
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3,
+                              patience=5, min_lr=0.00000001)
 ```
 [:arrow_up:Оглавление](#4)
 <a name="2"></a>
@@ -260,4 +205,4 @@ showCorr([0], 11, predVal, yValUnscaled)
 ```
 [:arrow_up:Оглавление](#4)
 
-[Ноутбук](https://colab.research.google.com/drive/1-YSwg3N_snmKxM7pGICV0ph6ffhhrSGq#scrollTo=i0mHUpXZk7Qj&uniqifier=2)
+[Ноутбук](https://colab.research.google.com/drive/1F1XRgISbk0EaB-eZc-5kAXFfqTArxeAd?usp=sharing)
