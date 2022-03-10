@@ -27,7 +27,7 @@ from tensorflow.keras import utils                              # Подключ
 from tensorflow.keras.utils import plot_model                   # Подключим plot_model для отрисовки модели
 from tensorflow.keras.preprocessing import image                # Подключим image для работы с изображениями
 from PIL import Image                                           # Подключим Image для работы с изображениями
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, LambdaCallback # 
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, LambdaCallback # Импортируем колбэки
 import tensorflow as tf                                         # Импортируем tensorflow
 import random                                                   # Импортируем библиотеку random
 ```
