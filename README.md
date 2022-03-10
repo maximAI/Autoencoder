@@ -249,5 +249,6 @@ image_my_1 = image.load_img('/content/text_cleaning/test/test_001.png', \
 predictImg(image_my_1)
 ```
 ![Иллюстрация к проекту](https://github.com/maximAI/Autoencoder/blob/main/Screenshot_2.jpg)
+[:arrow_up:Оглавление](#5)
 
 [Ноутбук](https://colab.research.google.com/drive/1F1XRgISbk0EaB-eZc-5kAXFfqTArxeAd?usp=sharing)
