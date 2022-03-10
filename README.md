@@ -1,4 +1,3 @@
-![Иллюстрация к проекту](https://github.com/maximAI/Autoencoder/blob/main/Screenshot_1.jpg)
 # Autoencoder
 Задача: Сделайть модель для очистки документов от шума и “грязи”.
 
@@ -220,6 +219,7 @@ plt.axis('off')
 plt.show()
 print('\nРазмерность', xTest_img.shape)
 ```
+![Иллюстрация к проекту](https://github.com/maximAI/Autoencoder/blob/main/Screenshot_1.jpg)
 ```
 def predictImg(image_my):
     '''
@@ -248,5 +248,6 @@ image_my_1 = image.load_img('/content/text_cleaning/test/test_001.png', \
                           target_size = (420, 540))
 predictImg(image_my_1)
 ```
+![Иллюстрация к проекту](https://github.com/maximAI/Autoencoder/blob/main/Screenshot_2.jpg)
 
 [Ноутбук](https://colab.research.google.com/drive/1F1XRgISbk0EaB-eZc-5kAXFfqTArxeAd?usp=sharing)
