@@ -53,6 +53,7 @@ def plotImages(xTrain, pred, shape=(420, 540, 3)):
         ax.get_yaxis().set_visible(False) # скрываем вывод координатной оси y
     plt.show()
 ```
+```
 def getMSE(x1, x2):
     '''
     Функция среднеквадратичной ошибки
